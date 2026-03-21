@@ -11,6 +11,13 @@ User → S3 (Upload) → Lambda → DynamoDB (Metadata)
 → SNS (Email Notification)
 → CloudWatch (Logs)
 
+## Architecture Diagram
+
+![V1 Architecture](v1-architecture.png)
+
+## Architecture Flow
+
+
 ## Services Used
 
 | Service | Purpose |

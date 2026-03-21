@@ -1,0 +1,97 @@
+{
+  "Comment": "File Processing Workflow",
+  "QueryLanguage": "JSONata",
+  "StartAt": "ValidateFile",
+  "States": {
+    "ValidateFile": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "YOUR-WORD-COUNT-PROCESSOR-LAMBDA-ARN",
+        "Payload": {
+          "action": "validate",
+          "bucket": "{% $states.input.bucket %}",
+          "key": "{% $states.input.key %}"
+        }
+      },
+      "Output": "{% $states.result.Payload %}",
+      "Next": "ProcessWordCount",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+      "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+    },
+    "ProcessWordCount": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "YOUR-WORD-COUNT-PROCESSOR-LAMBDA-ARN",
+        "Payload": {
+          "action": "process",
+          "bucket": "{% $states.input.bucket %}",
+          "key": "{% $states.input.key %}"
+        }
+      },
+      "Output": "{% $states.result.Payload %}",
+      "Next": "StoreMetadata",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+      "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+    },
+    "StoreMetadata": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "YOUR-WORD-COUNT-PROCESSOR-LAMBDA-ARN",
+        "Payload": {
+          "action": "store",
+          "bucket": "{% $states.input.bucket %}",
+          "key": "{% $states.input.key %}",
+          "wordCount": "{% $states.input.wordCount %}"
+        }
+      },
+      "Output": "{% $states.result.Payload %}",
+      "Next": "MoveToProcessedBucket",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+      "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+    },
+    "MoveToProcessedBucket": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Arguments": {
+        "FunctionName": "YOUR-WORD-COUNT-PROCESSOR-LAMBDA-ARN",
+        "Payload": {
+          "action": "move",
+          "sourceBucket": "{% $states.input.bucket %}",
+          "destinationBucket": "YOUR-PROCESSED-BUCKET-NAME",
+          "key": "{% $states.input.key %}"
+        }
+      },
+      "Output": "{% $states.result.Payload %}",
+      "Next": "NotifyUser",
+      "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+      "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+    },
+    "NotifyUser": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "YOUR-USER-NOTIFICATION-SNS-TOPIC-ARN",
+        "Message": "{% 'Your file ' & $states.input.key & ' has been processed successfully. Word count: ' & $string($states.input.wordCount) %}"
+      },
+      "Next": "SuccessEnd"
+    },
+    "SuccessEnd": {
+      "Type": "Succeed"
+    },
+    "HandleError": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::sns:publish",
+      "Arguments": {
+        "TopicArn": "YOUR-OWNER-ALERT-SNS-TOPIC-ARN",
+        "Message": "{% 'Error processing file ' & $states.input.key & '. Please check the DLQ for more details.' %}"
+      },
+      "Next": "FailEnd"
+    },
+    "FailEnd": {
+      "Type": "Fail"
+    }
+  }
+}

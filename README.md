@@ -19,13 +19,45 @@ regional CloudFormation infrastructure.
 
 ### V1 — Basic Pipeline
 
+User → S3 → Lambda → DynamoDB + SNS
+
 ### V2 — Enhanced Pipeline
+
+User → S3 → SQS → Lambda → DynamoDB + SNS
+↓
+DLQ → CloudWatch Alarm → SNS Owner Alert
+
 
 ### V3 — API Gateway & Upload Portal
 
+User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)
+↓
+S3 Presigned URL
+↓
+User → S3 Upload → SQS → Lambda (WordCount) → DynamoDB + SNS
+
 ### V4 — Step Functions
 
+User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)
+↓
+S3 Presigned URL
+↓
+User → S3 Upload → SQS → Lambda (SQSTrigger) → Step Functions
+↓
+ValidateFile
+↓
+ProcessWordCount
+↓
+StoreMetadata
+↓
+MoveToProcessedBucket
+↓
+NotifyUser → SNS
+
 ### V5a & V5b — CloudFormation
+
+Same as V4 but entire infrastructure
+deployed automatically via CloudFormation template
 
 ## Prerequisites
 

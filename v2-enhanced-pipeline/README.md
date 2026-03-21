@@ -47,8 +47,8 @@ SNS (Owner Alert)
 
 ### Step 1 — Create Owner Alert SNS Topic
 
-- 1. Go to AWS Console → SNS
-- 2. Click "Create topic"
+1. Go to AWS Console → SNS
+2. Click "Create topic"
 3. Type: Standard
 4. Name: OwnerAlertTopic
 5. Click "Create topic"
@@ -70,14 +70,14 @@ SNS (Owner Alert)
  
 ### Step 3 — Create Main SQS Queue
 
-Go to AWS Console → SQS
-Click "Create queue"
-Type: Standard
-Name: FileProcessingQueue
-Visibility timeout: 300 seconds
-Under "Dead-letter queue":
-Enable dead-letter queue: ✅
-Choose queue: FileProcessingDLQ
-Maximum receives: 3
-Click "Create queue"
-Copy the Queue ARN for later
+1. Go to AWS Console → SQS
+2. Click "Create queue"
+3. Type: Standard
+4. Name: FileProcessingQueue
+5. Visibility timeout: 300 seconds
+6. Under "Dead-letter queue":
+  - Enable dead-letter queue: ✅
+  - Choose queue: FileProcessingDLQ
+  - Maximum receives: 3
+7. Click "Create queue"
+8. Copy the Queue ARN for later

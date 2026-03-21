@@ -24,6 +24,10 @@ CloudWatch Alarm
 ↓
 SNS (Owner Alert)
 
+<p align="center">
+  <img src="v2-architecture.png" width="700">
+</p>
+
 ## Services Used
 
 | Service | Purpose |

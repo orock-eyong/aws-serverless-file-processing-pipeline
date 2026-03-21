@@ -131,7 +131,7 @@ Parameters:
 3. Click "Delete"
 4. Confirm deletion
 
-### ⚠️ Note: S3 buckets must be emptied before the stack can be deleted. ⚠️
+#### ⚠️ Note: S3 buckets must be emptied before the stack can be deleted. ⚠️
 
 ## What's Next
 

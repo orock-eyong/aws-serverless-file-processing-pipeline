@@ -65,11 +65,11 @@ Same as V4 but fully automated via CloudFormation.
 Stack name: FileProcessingPipeline
 
 Parameters:
-Environment: prod
-UploadBucketName: your-upload-bucket-name
-ProcessedBucketName: your-processed-bucket-name
-DynamoDBTableName: TextFileMetadata
-NotificationEmail: your-email@example.com
+- Environment: prod
+- UploadBucketName: your-upload-bucket-name
+- ProcessedBucketName: your-processed-bucket-name
+- DynamoDBTableName: TextFileMetadata
+- NotificationEmail: your-email@example.com
 
 ### Step 4 — Configure Stack Options
 

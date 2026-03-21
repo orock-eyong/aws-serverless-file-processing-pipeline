@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>File Upload Portal</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f2f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+    .container {
+      background: white;
+      border-radius: 12px;
+      padding: 40px;
+      width: 100%;
+      max-width: 480px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+    }
+    .header { text-align: center; margin-bottom: 30px; }
+    .header h1 { font-size: 24px; color: #232f3e; margin-bottom: 8px; }
+    .header p { font-size: 14px; color: #666; }
+    .upload-area {
+      border: 2px dashed #ccc;
+      border-radius: 10px;
+      padding: 40px 20px;
+      text-align: center;
+      transition: all 0.3s ease;
+      margin-bottom: 20px;
+      background: #fafafa;
+      position: relative;
+    }
+    .upload-area.dragover { border-color: #e67e22; background: #fff8f0; }
+    .upload-icon { font-size: 48px; margin-bottom: 12px; pointer-events: none; }
+    .upload-area h3 { color: #333; margin-bottom: 8px; font-size: 16px; pointer-events: none; }
+    .upload-area p { color: #999; font-size: 13px; pointer-events: none; }
+    .upload-area .allowed {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #e67e22;
+      font-weight: bold;
+      pointer-events: none;
+    }
+    #fileInput {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+    .btn {
+      width: 100%;
+      padding: 14px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      margin-top: 10px;
+    }
+    .btn-primary { background: #e67e22; color: white; }
+    .btn-primary:hover:not(:disabled) { background: #d35400; }
+    .btn-primary:disabled { background: #ccc; cursor: not-allowed; }
+    .file-info {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px 16px;
+      margin-bottom: 10px;
+      display: none;
+      align-items: center;
+      gap: 10px;
+    }
+    .file-info.visible { display: flex; }
+    .file-info .name {
+      font-size: 13px; color: #333;
+      flex: 1; overflow: hidden;
+      text-overflow: ellipsis; white-space: nowrap;
+    }
+    .file-info .remove {
+      cursor: pointer; color: #e74c3c;
+      font-size: 18px; font-weight: bold;
+      background: none; border: none; padding: 0 4px;
+    }
+    .progress-container { display: none; margin: 15px 0; }
+    .progress-container.visible { display: block; }
+    .progress-label { font-size: 13px; color: #555; margin-bottom: 6px; }
+    .progress-bar-bg { background: #eee; border-radius: 10px; height: 10px; overflow: hidden; }
+    .progress-bar {
+      height: 100%; background: #e67e22;
+      border-radius: 10px; width: 0%;
+      transition: width 0.4s ease;
+    }
+    .status {
+      margin-top: 20px; padding: 14px;
+      border-radius: 8px; font-size: 14px;
+      text-align: center; display: none; line-height: 1.6;
+    }
+    .status.visible { display: block; }
+    .status.success { background: #eafaf1; color: #27ae60; border: 1px solid #27ae60; }
+    .status.error   { background: #fdf2f2; color: #e74c3c; border: 1px solid #e74c3c; }
+    .status.loading { background: #fdf3e8; color: #e67e22; border: 1px solid #e67e22; }
+    .footer { text-align: center; margin-top: 24px; font-size: 12px; color: #aaa; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <div class="header">
+    <div style="font-size: 40px; margin-bottom: 10px;">☁️</div>
+    <h1>File Upload Portal</h1>
+    <p>Upload your file securely for processing</p>
+  </div>
+
+  <div class="upload-area" id="dropZone">
+    <div class="upload-icon">📂</div>
+    <h3>Drag & Drop your file here</h3>
+    <p>or click to browse your computer</p>
+    <div class="allowed">Allowed: .txt .csv .doc .pdf</div>
+    <input type="file" id="fileInput" accept=".txt,.csv,.doc,.pdf" />
+  </div>
+
+  <div class="file-info" id="fileInfo">
+    <span>📄</span>
+    <span class="name" id="fileName">No file selected</span>
+    <button class="remove" onclick="removeFile()">✕</button>
+  </div>
+
+  <div class="progress-container" id="progressContainer">
+    <div class="progress-label" id="progressLabel">Uploading...</div>
+    <div class="progress-bar-bg">
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary" id="uploadBtn" onclick="uploadFile()" disabled>
+    📤 Upload File
+  </button>
+
+  <div class="status" id="status"></div>
+
+  <div class="footer">
+    🔒 Files are securely uploaded and processed automatically
+  </div>
+
+</div>
+
+<script>
+  // ─── Replace with your API Gateway URL ───────────────────────
+  const API_URL = "YOUR-API-GATEWAY-URL/prod/upload";
+
+  let selectedFile = null;
+
+  document.getElementById('fileInput').addEventListener('change', function(e) {
+    if (e.target.files.length > 0) handleFileSelect(e.target.files[0]);
+  });
+
+  const dropZone = document.getElementById('dropZone');
+  ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+    document.body.addEventListener(eventName, (e) => { e.preventDefault(); e.stopPropagation(); });
+  });
+  dropZone.addEventListener('dragenter', () => dropZone.classList.add('dragover'));
+  dropZone.addEventListener('dragover',  (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', (e) => { e.preventDefault(); dropZone.classList.remove('dragover'); });
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length > 0) handleFileSelect(e.dataTransfer.files[0]);
+  });
+
+  function handleFileSelect(file) {
+    if (!file) return;
+    const allowedExtensions = ['.txt', '.csv', '.doc', '.pdf'];
+    const fileExt = '.' + file.name.split('.').pop().toLowerCase();
+    if (!allowedExtensions.includes(fileExt)) {
+      showStatus(`❌ Invalid file type "${fileExt}". Allowed: ${allowedExtensions.join(', ')}`, 'error');
+      return;
+    }
+    selectedFile = file;
+    document.getElementById('fileName').textContent = `${file.name} (${formatSize(file.size)})`;
+    document.getElementById('fileInfo').classList.add('visible');
+    document.getElementById('uploadBtn').disabled = false;
+    hideStatus();
+  }
+
+  function removeFile() {
+    selectedFile = null;
+    document.getElementById('fileInput').value = '';
+    document.getElementById('fileInfo').classList.remove('visible');
+    document.getElementById('uploadBtn').disabled = true;
+    document.getElementById('progressContainer').classList.remove('visible');
+    hideStatus();
+  }
+
+  async function uploadFile() {
+    if (!selectedFile) { showStatus('❌ Please select a file first', 'error'); return; }
+
+    const uploadBtn = document.getElementById('uploadBtn');
+    uploadBtn.disabled = true;
+    uploadBtn.textContent = '⏳ Uploading...';
+
+    const contentType = selectedFile.type || 'application/octet-stream';
+
+    try {
+      showStatus('⏳ Step 1/2 — Requesting secure upload URL...', 'loading');
+      showProgress('Requesting upload URL...', 30);
+
+      const response = await fetch(API_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: selectedFile.name,
+          contentType: contentType
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.upload_url) {
+        throw new Error(data.error || `API error: ${response.status}`);
+      }
+
+      showStatus('⏳ Step 2/2 — Uploading file to secure storage...', 'loading');
+      showProgress('Uploading file...', 70);
+
+      const uploadResponse = await fetch(data.upload_url, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: selectedFile
+      });
+
+      if (!uploadResponse.ok) throw new Error(`S3 upload failed: ${uploadResponse.status}`);
+
+      showProgress('Complete! ✅', 100);
+      showStatus(
+        `✅ <strong>${selectedFile.name}</strong> uploaded successfully!<br><br>
+        ⚡ Your file is now being processed.<br>
+        📧 You will receive an email notification shortly.`,
+        'success'
+      );
+
+      uploadBtn.textContent = '📤 Upload Another File';
+      uploadBtn.disabled = false;
+      uploadBtn.onclick = () => {
+        removeFile();
+        uploadBtn.onclick = uploadFile;
+        uploadBtn.textContent = '📤 Upload File';
+      };
+
+    } catch (error) {
+      showStatus(`❌ Upload failed: ${error.message}<br><br>💡 Please try again.`, 'error');
+      uploadBtn.disabled = false;
+      uploadBtn.textContent = '📤 Try Again';
+    }
+  }
+
+  function showStatus(message, type) {
+    const status = document.getElementById('status');
+    status.innerHTML = message;
+    status.className = `status visible ${type}`;
+  }
+
+  function hideStatus() {
+    document.getElementById('status').className = 'status';
+    document.getElementById('progressContainer').classList.remove('visible');
+  }
+
+  function showProgress(label, percent) {
+    document.getElementById('progressContainer').classList.add('visible');
+    document.getElementById('progressLabel').textContent = label;
+    document.getElementById('progressBar').style.width = percent + '%';
+  }
+
+  function formatSize(bytes) {
+    if (bytes < 1024) return bytes + ' B';
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+  }
+</script>
+</body>
+</html>

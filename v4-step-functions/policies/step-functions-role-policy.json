@@ -1,0 +1,27 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": "lambda:InvokeFunction",
+            "Resource": "arn:aws:lambda:YOUR-REGION:YOUR-ACCOUNT-ID:function:WordCountProcessor"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "sns:Publish",
+            "Resource": [
+                "arn:aws:sns:YOUR-REGION:YOUR-ACCOUNT-ID:TextProcessingNotifications",
+                "arn:aws:sns:YOUR-REGION:YOUR-ACCOUNT-ID:OwnerAlertTopic"
+            ]
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:*"
+        }
+    ]
+}

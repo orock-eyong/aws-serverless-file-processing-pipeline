@@ -81,3 +81,54 @@ SNS (Owner Alert)
 - *Maximum receives: 3*
 7. Click "Create queue"
 8. Copy the Queue ARN for later
+
+### Step 4 — Allow S3 to Send Messages to SQS
+
+1. Click on "FileProcessingQueue"
+2. Click "Access policy" tab
+3. Click "Edit"
+4. Paste the policy from
+- *policies/sqs-queue-policy.json*
+5. Replace YOUR-QUEUE-ARN and
+- *YOUR-BUCKET-NAME with your values*
+6. Click "Save"
+
+### Step 5 — Connect S3 to SQS
+
+1. Go to your S3 upload bucket
+2. Click "Properties" tab
+3. Scroll to "Event notifications"
+4. Click "Create event notification"
+5. Event name: SendToSQS
+6. Event type: s3:ObjectCreated:*
+7. Destination: SQS queue
+8. SQS queue: FileProcessingQueue
+9. Click "Save changes"
+
+### Step 6 — Update Lambda Trigger
+
+1. Go to Lambda console
+2. Click on your V1 Lambda function
+or create a new one named: v2-text-word-count
+3. Remove the S3 trigger if present
+4. Click "Add trigger"
+5. Select "SQS"
+6. SQS queue: FileProcessingQueue
+7. Batch size: 1
+8. Click "Add"
+
+### Step 7 — Update Lambda Code
+
+1. Replace the Lambda code with
+the code from lambda/lambda_function.py
+2. Click "Deploy"
+
+### Step 8 — Update IAM Role
+
+1. Go to IAM → Roles
+2. Click on your Lambda role
+3. Remove old broad policies
+4. Add inline policy from
+policies/lambda-role-policy.json
+
+### Step 9 — Create CloudWatch Alarm

@@ -1,0 +1,656 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  File Processing Pipeline V5a - Basic CloudFormation
+  Creates the full infrastructure for file upload,
+  processing, storage and notifications.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: prod
+    Description: Environment name
+
+  UploadBucketName:
+    Type: String
+    Default: upload-bucket
+    Description: Name of the S3 upload bucket
+
+  ProcessedBucketName:
+    Type: String
+    Default: processed-bucket
+    Description: Name of the S3 processed bucket
+
+  DynamoDBTableName:
+    Type: String
+    Default: FileMetadata
+    Description: Name of the DynamoDB table
+
+  NotificationEmail:
+    Type: String
+    Description: Email address for notifications
+
+Resources:
+
+  # ─────────────────────────────────────────
+  # S3 Buckets
+  # ─────────────────────────────────────────
+  UploadBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: FileProcessingQueue
+    Properties:
+      BucketName: !Sub ${Environment}-${UploadBucketName}
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - PUT
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3000
+      NotificationConfiguration:
+        QueueConfigurations:
+          - Event: s3:ObjectCreated:*
+            Queue: !GetAtt FileProcessingQueue.Arn
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  ProcessedBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: OwnerAlertTopic
+    Properties:
+      BucketName: !Sub ${Environment}-${ProcessedBucketName}
+      NotificationConfiguration:
+        TopicConfigurations:
+          - Event: s3:ObjectRemoved:*
+            Topic: !Ref OwnerAlertTopic
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+
+  # ─────────────────────────────────────────
+  # SQS Queues
+  # ─────────────────────────────────────────
+  DeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Environment}-FileProcessingDLQ
+      MessageRetentionPeriod: 1209600
+
+  FileProcessingQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub ${Environment}-FileProcessingQueue
+      VisibilityTimeout: 300
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
+        maxReceiveCount: 3
+
+  FileProcessingQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref FileProcessingQueue
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt FileProcessingQueue.Arn
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:s3:::${Environment}-${UploadBucketName}
+
+  # ─────────────────────────────────────────
+  # SNS Topics
+  # ─────────────────────────────────────────
+  UserNotificationTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-UserNotifications
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref NotificationEmail
+
+  OwnerAlertTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub ${Environment}-OwnerAlerts
+      Subscription:
+        - Protocol: email
+          Endpoint: !Ref NotificationEmail
+
+  OwnerAlertTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      Topics:
+        - !Ref OwnerAlertTopic
+      PolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sns:Publish
+            Resource: !Ref OwnerAlertTopic
+            Condition:
+              ArnLike:
+                aws:SourceArn: !Sub arn:aws:s3:::${Environment}-${ProcessedBucketName}
+
+  # ─────────────────────────────────────────
+  # CloudWatch Alarm for DLQ
+  # ─────────────────────────────────────────
+  DLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub ${Environment}-DLQAlarm
+      AlarmDescription: Triggered when DLQ receives a message
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt DeadLetterQueue.QueueName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref OwnerAlertTopic
+
+  # ─────────────────────────────────────────
+  # DynamoDB Table
+  # ─────────────────────────────────────────
+  MetadataTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${Environment}-${DynamoDBTableName}
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: fileName
+          AttributeType: S
+      KeySchema:
+        - AttributeName: fileName
+          KeyType: HASH
+
+  # ─────────────────────────────────────────
+  # IAM Roles
+  # ─────────────────────────────────────────
+  GeneratePresignedUrlRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Environment}-GeneratePresignedUrlRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: S3UploadPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:aws:s3:::${Environment}-${UploadBucketName}/*
+
+  WordCountProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Environment}-WordCountProcessorRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: WordCountProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub arn:aws:s3:::${Environment}-${UploadBucketName}/*
+                  - !Sub arn:aws:s3:::${Environment}-${ProcessedBucketName}/*
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:aws:s3:::${Environment}-${ProcessedBucketName}/*
+              - Effect: Allow
+                Action: s3:CopyObject
+                Resource:
+                  - !Sub arn:aws:s3:::${Environment}-${UploadBucketName}/*
+                  - !Sub arn:aws:s3:::${Environment}-${ProcessedBucketName}/*
+              - Effect: Allow
+                Action: dynamodb:PutItem
+                Resource: !GetAtt MetadataTable.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource: !Ref UserNotificationTopic
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt FileProcessingQueue.Arn
+
+  SQSTriggerRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Environment}-SQSTriggerRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: SQSTriggerPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt FileProcessingQueue.Arn
+              - Effect: Allow
+                Action: states:StartExecution
+                Resource: !Ref FileProcessingWorkflow
+
+  StepFunctionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub ${Environment}-StepFunctionsRole
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: states.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: StepFunctionsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt WordCountProcessorFunction.Arn
+              - Effect: Allow
+                Action: sns:Publish
+                Resource:
+                  - !Ref UserNotificationTopic
+                  - !Ref OwnerAlertTopic
+
+  # ─────────────────────────────────────────
+  # Lambda Functions
+  # ─────────────────────────────────────────
+  GeneratePresignedUrlFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-GeneratePresignedUrl
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt GeneratePresignedUrlRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub ${Environment}-${UploadBucketName}
+          CORS_ALLOW_ORIGIN: '*'
+          ALLOWED_EXTENSIONS: .txt,.csv,.doc,.pdf
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from botocore.exceptions import ClientError
+
+          REGION = os.environ.get('AWS_REGION', 'us-east-1')
+          s3 = boto3.client('s3', region_name=REGION,
+                            endpoint_url=f"https://s3.{REGION}.amazonaws.com")
+
+          BUCKET_NAME        = os.environ.get('BUCKET_NAME')
+          ALLOWED_EXTENSIONS = os.environ.get('ALLOWED_EXTENSIONS', '.txt,.csv,.doc,.pdf').split(',')
+          ALLOWED_ORIGINS    = os.environ.get('CORS_ALLOW_ORIGIN', '*').split(',')
+
+          def get_cors_headers(event):
+              origin = event.get('headers', {}).get('origin') or \
+                       event.get('headers', {}).get('Origin', '')
+              allowed_origin = origin if origin in ALLOWED_ORIGINS else ALLOWED_ORIGINS[0]
+              return {
+                  'Access-Control-Allow-Origin':  allowed_origin,
+                  'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token',
+                  'Access-Control-Allow-Methods': 'POST,OPTIONS',
+                  'Vary': 'Origin'
+              }
+
+          def lambda_handler(event, context):
+              print(f"Received event: {json.dumps(event)}")
+              CORS_HEADERS = get_cors_headers(event)
+
+              if event.get('httpMethod') == 'OPTIONS':
+                  return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': json.dumps('OK')}
+
+              try:
+                  body         = json.loads(event['body'])
+                  filename     = body.get('filename')
+                  content_type = body.get('contentType', 'application/octet-stream')
+
+                  if not filename:
+                      return {'statusCode': 400, 'headers': CORS_HEADERS,
+                              'body': json.dumps({'error': 'filename is required'})}
+
+                  if not any(filename.endswith(ext) for ext in ALLOWED_EXTENSIONS):
+                      return {'statusCode': 400, 'headers': CORS_HEADERS,
+                              'body': json.dumps({'error': f'Invalid file type. Allowed: {ALLOWED_EXTENSIONS}'})}
+
+                  presigned_url = s3.generate_presigned_url(
+                      'put_object',
+                      Params={'Bucket': BUCKET_NAME, 'Key': filename, 'ContentType': content_type},
+                      ExpiresIn=300
+                  )
+
+                  return {'statusCode': 200, 'headers': CORS_HEADERS,
+                          'body': json.dumps({'upload_url': presigned_url, 'filename': filename, 'expires_in': '5 minutes'})}
+
+              except ClientError as e:
+                  return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': str(e)})}
+              except Exception as e:
+                  return {'statusCode': 500, 'headers': CORS_HEADERS, 'body': json.dumps({'error': 'An unexpected error occurred'})}
+
+  SQSTriggerFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-SQSTriggerStepFunctions
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt SQSTriggerRole.Arn
+      Timeout: 30
+      MemorySize: 128
+      Environment:
+        Variables:
+          STATE_MACHINE_ARN: !Ref FileProcessingWorkflow
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from urllib.parse import unquote_plus
+
+          stepfunctions     = boto3.client('stepfunctions')
+          STATE_MACHINE_ARN = os.environ.get('STATE_MACHINE_ARN')
+
+          def lambda_handler(event, context):
+              print(f"Received event: {json.dumps(event)}")
+              for record in event['Records']:
+                  body     = json.loads(record['body'])
+                  s3_event = body['Records'][0]['s3']
+                  bucket   = s3_event['bucket']['name']
+                  key      = unquote_plus(s3_event['object']['key'])
+                  print(f"Starting Step Functions for: {bucket}/{key}")
+                  response = stepfunctions.start_execution(
+                      stateMachineArn=STATE_MACHINE_ARN,
+                      input=json.dumps({'action': 'validate', 'bucket': bucket, 'key': key})
+                  )
+                  print(f"Execution started: {response['executionArn']}")
+              return {'statusCode': 200}
+
+  SQSTriggerEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      EventSourceArn: !GetAtt FileProcessingQueue.Arn
+      FunctionName: !GetAtt SQSTriggerFunction.Arn
+      BatchSize: 1
+      Enabled: true
+
+  WordCountProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-WordCountProcessor
+      Runtime: python3.11
+      Handler: index.lambda_handler
+      Role: !GetAtt WordCountProcessorRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN:     !Ref UserNotificationTopic
+          DDB_TABLE_NAME:    !Sub ${Environment}-${DynamoDBTableName}
+          PROCESSED_BUCKET:  !Sub ${Environment}-${ProcessedBucketName}
+          DDB_PARTITION_KEY: fileName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime
+          from urllib.parse import unquote_plus
+
+          REGION            = os.environ.get('AWS_REGION', 'us-east-1')
+          SNS_TOPIC_ARN     = os.environ.get('SNS_TOPIC_ARN')
+          DDB_TABLE_NAME    = os.environ.get('DDB_TABLE_NAME')
+          PROCESSED_BUCKET  = os.environ.get('PROCESSED_BUCKET')
+          DDB_PARTITION_KEY = os.environ.get('DDB_PARTITION_KEY', 'fileName')
+
+          s3       = boto3.client('s3',         region_name=REGION)
+          sns      = boto3.client('sns',        region_name=REGION)
+          dynamodb = boto3.resource('dynamodb', region_name=REGION)
+
+          def process_file(bucket, key):
+              print(f"Processing file: s3://{bucket}/{key}")
+              filename      = os.path.basename(key)
+              download_path = f'/tmp/{filename}'
+              s3.download_file(bucket, key, download_path)
+              with open(download_path, 'r', encoding='utf-8', errors='ignore') as f:
+                  text = f.read()
+              word_count  = len(text.split())
+              result_key  = f'wordcount-{filename}'
+              result_body = f'Total words in {key}: {word_count}'
+              s3.put_object(Bucket=PROCESSED_BUCKET, Key=result_key, Body=result_body)
+              table = dynamodb.Table(DDB_TABLE_NAME)
+              table.put_item(Item={DDB_PARTITION_KEY: key, 'WordCount': word_count, 'ProcessedAt': datetime.utcnow().isoformat()})
+              sns.publish(TopicArn=SNS_TOPIC_ARN, Message=f'File {key} processed successfully! {word_count} words counted.', Subject='Text Processing Complete')
+              return {'bucket': bucket, 'key': key, 'wordCount': word_count}
+
+          def lambda_handler(event, context):
+              print(f"Raw event received: {json.dumps(event)}")
+              if 'action' in event:
+                  action = event['action']
+                  key    = event['key']
+                  if action == 'move':
+                      s3.copy_object(CopySource={'Bucket': event['sourceBucket'], 'Key': key}, Bucket=event['destinationBucket'], Key=key)
+                      return {'bucket': event['sourceBucket'], 'key': key}
+                  else:
+                      return process_file(event['bucket'], key)
+              if 'Records' in event:
+                  for sqs_record in event['Records']:
+                      try:
+                          sqs_body = json.loads(sqs_record['body'])
+                          if 'Records' not in sqs_body:
+                              continue
+                          for s3_record in sqs_body['Records']:
+                              process_file(s3_record['s3']['bucket']['name'], unquote_plus(s3_record['s3']['object']['key']))
+                      except Exception as e:
+                          print(f"ERROR: {str(e)}")
+                          raise e
+              return {'statusCode': 200}
+
+  # ─────────────────────────────────────────
+  # Step Functions
+  # ─────────────────────────────────────────
+  FileProcessingWorkflow:
+    Type: AWS::StepFunctions::StateMachine
+    Properties:
+      StateMachineName: !Sub ${Environment}-FileProcessingWorkflow
+      RoleArn: !GetAtt StepFunctionsRole.Arn
+      DefinitionString: !Sub |
+        {
+          "Comment": "File Processing Workflow",
+          "QueryLanguage": "JSONata",
+          "StartAt": "ValidateFile",
+          "States": {
+            "ValidateFile": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {"FunctionName": "${WordCountProcessorFunction.Arn}", "Payload": {"action": "validate", "bucket": "{% $states.input.bucket %}", "key": "{% $states.input.key %}"}},
+              "Output": "{% $states.result.Payload %}",
+              "Next": "ProcessWordCount",
+              "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+              "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+            },
+            "ProcessWordCount": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {"FunctionName": "${WordCountProcessorFunction.Arn}", "Payload": {"action": "process", "bucket": "{% $states.input.bucket %}", "key": "{% $states.input.key %}"}},
+              "Output": "{% $states.result.Payload %}",
+              "Next": "StoreMetadata",
+              "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+              "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+            },
+            "StoreMetadata": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {"FunctionName": "${WordCountProcessorFunction.Arn}", "Payload": {"action": "store", "bucket": "{% $states.input.bucket %}", "key": "{% $states.input.key %}", "wordCount": "{% $states.input.wordCount %}"}},
+              "Output": "{% $states.result.Payload %}",
+              "Next": "MoveToProcessedBucket",
+              "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+              "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+            },
+            "MoveToProcessedBucket": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Arguments": {"FunctionName": "${WordCountProcessorFunction.Arn}", "Payload": {"action": "move", "sourceBucket": "{% $states.input.bucket %}", "destinationBucket": "${Environment}-${ProcessedBucketName}", "key": "{% $states.input.key %}"}},
+              "Output": "{% $states.result.Payload %}",
+              "Next": "NotifyUser",
+              "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
+              "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
+            },
+            "NotifyUser": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Arguments": {"TopicArn": "${UserNotificationTopic}", "Message": "{% 'Your file ' & $states.input.key & ' has been processed successfully. Word count: ' & $string($states.input.wordCount) %}"},
+              "Next": "SuccessEnd"
+            },
+            "SuccessEnd": {"Type": "Succeed"},
+            "HandleError": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::sns:publish",
+              "Arguments": {"TopicArn": "${OwnerAlertTopic}", "Message": "{% 'Error processing file ' & $states.input.key & '. Please check the DLQ for more details.' %}"},
+              "Next": "FailEnd"
+            },
+            "FailEnd": {"Type": "Fail"}
+          }
+        }
+
+  # ─────────────────────────────────────────
+  # API Gateway
+  # ─────────────────────────────────────────
+  FileUploadApi:
+    Type: AWS::ApiGateway::RestApi
+    Properties:
+      Name: !Sub ${Environment}-FileUploadApi
+      Description: API for file upload portal
+
+  UploadResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      ParentId: !GetAtt FileUploadApi.RootResourceId
+      PathPart: upload
+
+  PostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      ResourceId: !Ref UploadResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GeneratePresignedUrlFunction.Arn}/invocations
+
+  OptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      ResourceId: !Ref UploadResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: false
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+
+  ApiGatewayLambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GeneratePresignedUrlFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadApi}/*/POST/upload
+
+  ApiDeployment:
+    Type: AWS::ApiGateway::Deployment
+    DependsOn:
+      - PostMethod
+      - OptionsMethod
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      StageName: !Ref Environment
+
+# ─────────────────────────────────────────
+# Outputs
+# ─────────────────────────────────────────
+Outputs:
+  ApiUrl:
+    Description: API Gateway URL
+    Value: !Sub https://${FileUploadApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/upload
+
+  UploadBucketName:
+    Description: Upload bucket name
+    Value: !Sub ${Environment}-${UploadBucketName}
+
+  ProcessedBucketName:
+    Description: Processed bucket name
+    Value: !Sub ${Environment}-${ProcessedBucketName}
+
+  DynamoDBTableName:
+    Description: DynamoDB table name
+    Value: !Sub ${Environment}-${DynamoDBTableName}
+
+  StateMachineArn:
+    Description: Step Functions state machine ARN
+    Value: !Ref FileProcessingWorkflow

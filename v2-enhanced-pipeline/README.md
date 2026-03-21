@@ -76,8 +76,8 @@ SNS (Owner Alert)
 4. Name: FileProcessingQueue
 5. Visibility timeout: 300 seconds
 6. Under "Dead-letter queue":
-  - Enable dead-letter queue: ✅
-  - Choose queue: FileProcessingDLQ
-  - Maximum receives: 3
+- *Enable dead-letter queue:* ✅
+- *Choose queue: FileProcessingDLQ*
+- *Maximum receives: 3*
 7. Click "Create queue"
 8. Copy the Queue ARN for later

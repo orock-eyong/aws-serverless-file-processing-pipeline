@@ -120,7 +120,7 @@ or create a new one named: v2-text-word-count
 ### Step 7 — Update Lambda Code
 
 1. Replace the Lambda code with
-the code from lambda/lambda_function.py
+-  the code from lambda/lambda_function.py
 2. Click "Deploy"
 
 ### Step 8 — Update IAM Role
@@ -129,6 +129,6 @@ the code from lambda/lambda_function.py
 2. Click on your Lambda role
 3. Remove old broad policies
 4. Add inline policy from
-policies/lambda-role-policy.json
+-  policies/lambda-role-policy.json
 
 ### Step 9 — Create CloudWatch Alarm

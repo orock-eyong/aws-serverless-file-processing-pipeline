@@ -88,9 +88,9 @@ SNS (Owner Alert)
 2. Click "Access policy" tab
 3. Click "Edit"
 4. Paste the policy from
-- *policies/sqs-queue-policy.json*
+**policies/sqs-queue-policy.json**
 5. Replace YOUR-QUEUE-ARN and
-- *YOUR-BUCKET-NAME with your values*
+**YOUR-BUCKET-NAME with your values**
 6. Click "Save"
 
 ### Step 5 — Connect S3 to SQS
@@ -109,7 +109,7 @@ SNS (Owner Alert)
 
 1. Go to Lambda console
 2. Click on your V1 Lambda function
-*or create a new one named: v2-text-word-count*
+**or create a new one named: v2-text-word-count**
 3. Remove the S3 trigger if present
 4. Click "Add trigger"
 5. Select "SQS"
@@ -120,7 +120,7 @@ SNS (Owner Alert)
 ### Step 7 — Update Lambda Code
 
 1. Replace the Lambda code with
-*the code from lambda/lambda_function.py*
+**the code from lambda/lambda_function.py**
 2. Click "Deploy"
 
 ### Step 8 — Update IAM Role
@@ -129,6 +129,6 @@ SNS (Owner Alert)
 2. Click on your Lambda role
 3. Remove old broad policies
 4. Add inline policy from
-*policies/lambda-role-policy.json*
+**policies/lambda-role-policy.json**
 
 ### Step 9 — Create CloudWatch Alarm

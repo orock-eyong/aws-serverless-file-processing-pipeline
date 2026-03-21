@@ -7,16 +7,13 @@ stores metadata in DynamoDB and sends an email notification via SNS.
 
 ## Architecture
 
+<p align="center">
+  <img src="v1-architecture.png" width="600">
+</p>
+
 User → S3 (Upload) → Lambda → DynamoDB (Metadata)
 → SNS (Email Notification)
 → CloudWatch (Logs)
-
-## Architecture Diagram
-
-![V1 Architecture](v1-architecture.png)
-
-## Architecture Flow
-
 
 ## Services Used
 

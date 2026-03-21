@@ -46,112 +46,38 @@ SNS (Owner Alert)
 ## Setup Instructions
 
 ### Step 1 — Create Owner Alert SNS Topic
-Go to AWS Console → SNS
 
-
-
-Click "Create topic"
-
-
-
-Type: Standard
-
-
-
-Name: OwnerAlertTopic
-
-
-
-Click "Create topic"
-
-
-
-Click "Create subscription"
-
-
-
-Protocol: Email
-
-
-
-Endpoint: your-email@example.com
-
-
-
-Click "Create subscription"
-
-
-
-Confirm subscription from your email
+1. Go to AWS Console → SNS
+2. Click "Create topic"
+3. Type: Standard
+4. Name: OwnerAlertTopic
+5. Click "Create topic"
+6. Click "Create subscription"
+7. Protocol: Email
+8. Endpoint: your-email@example.com
+9. Click "Create subscription"
+10. Confirm subscription from your email
 
 ### Step 2 — Create Dead Letter Queue
-Go to AWS Console → SQS
 
-
-
-Click "Create queue"
-
-
-
-Type: Standard
-
-
-
-Name: FileProcessingDLQ
-
-
-
-Message retention period: 14 days
-
-
-
-Click "Create queue"
-
-
-
-Copy the DLQ ARN for later
-
+1. Go to AWS Console → SQS
+2. Click "Create queue"
+3. Type: Standard
+4. Name: FileProcessingDLQ
+5. Message retention period: 14 days
+6. Click "Create queue"
+7. Copy the DLQ ARN for later
+ 
 ### Step 3 — Create Main SQS Queue
+
 Go to AWS Console → SQS
-
-
-
 Click "Create queue"
-
-
-
 Type: Standard
-
-
-
 Name: FileProcessingQueue
-
-
-
 Visibility timeout: 300 seconds
-
-
-
 Under "Dead-letter queue":
-
-
-
-
-
 Enable dead-letter queue: ✅
-
-
-
 Choose queue: FileProcessingDLQ
-
-
-
 Maximum receives: 3
-
-
-
 Click "Create queue"
-
-
-
 Copy the Queue ARN for later

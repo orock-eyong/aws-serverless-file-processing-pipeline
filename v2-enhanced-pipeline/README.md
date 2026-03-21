@@ -47,8 +47,8 @@ SNS (Owner Alert)
 
 ### Step 1 — Create Owner Alert SNS Topic
 
-1. Go to AWS Console → SNS
-2. Click "Create topic"
+- 1. Go to AWS Console → SNS
+- 2. Click "Create topic"
 3. Type: Standard
 4. Name: OwnerAlertTopic
 5. Click "Create topic"

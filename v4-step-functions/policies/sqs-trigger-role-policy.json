@@ -1,0 +1,28 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Effect": "Allow",
+            "Action": [
+                "sqs:ReceiveMessage",
+                "sqs:DeleteMessage",
+                "sqs:GetQueueAttributes"
+            ],
+            "Resource": "arn:aws:sqs:YOUR-REGION:YOUR-ACCOUNT-ID:FileProcessingQueue"
+        },
+        {
+            "Effect": "Allow",
+            "Action": "states:StartExecution",
+            "Resource": "arn:aws:states:YOUR-REGION:YOUR-ACCOUNT-ID:stateMachine:FileProcessingWorkflow"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "logs:CreateLogGroup",
+                "logs:CreateLogStream",
+                "logs:PutLogEvents"
+            ],
+            "Resource": "arn:aws:logs:*:*:*"
+        }
+    ]
+}

@@ -132,3 +132,45 @@ SNS (Owner Alert)
 **policies/lambda-role-policy.json**
 
 ### Step 9 — Create CloudWatch Alarm
+
+1. Go to AWS Console → CloudWatch
+2. Click "Alarms" → "Create alarm"
+3. Click "Select metric"
+4. Search for "SQS" → "Queue metrics"
+5. Find "FileProcessingDLQ"
+6. Select "ApproximateNumberOfMessagesVisible"
+7. Click "Select metric"
+8. Conditions:
+- Threshold type: Static
+- Whenever value is: Greater/Equal
+- Than: 1
+9. Click "Next"
+10. Notification:
+- Select "In alarm"
+- SNS topic: OwnerAlertTopic
+11. Click "Next"
+12. Alarm name: DLQAlarm
+13. Click "Create alarm"
+  
+### Step 10 — Test
+
+1. Upload a .txt file to S3
+2. Check SQS queue message count
+3. Check Lambda CloudWatch logs
+4. Check DynamoDB for new entry
+5. Check email for notification
+
+## Expected Results
+
+| Check | Expected |
+|-------|----------|
+| SQS Queue | Message received and processed |
+| CloudWatch Logs | Processing logs visible |
+| DynamoDB | New item with fileName and wordCount |
+| Email | Success notification received |
+| DLQ | Empty (no failed messages) |
+
+## What's Next
+
+Move to [V3 - API Gateway & Upload Portal](../v3-api-gateway-portal/)
+to add a web upload interface and API Gateway.

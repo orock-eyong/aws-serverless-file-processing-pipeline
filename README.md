@@ -15,6 +15,14 @@ regional CloudFormation infrastructure.
 | [V5a - CloudFormation Basic](./v5a-cloudformation-basic/) | Infrastructure as Code | CloudFormation |
 | [V5b - CloudFormation Regional](./v5b-cloudformation-regional/) | Region-aware deployment | CloudFormation with region naming |
 
+## Quick Start
+
+| I want to... | Go to... |
+|---|---|
+| Learn step by step | Start with [V1](./v1-basic-pipeline/) |
+| Deploy quickly | Use [V5b CloudFormation](./v5b-cloudformation-regional/) |
+| See a specific version | Click the folder above |
+
 ## Architecture Evolution
 
 ### V1 — Basic Pipeline

@@ -161,7 +161,6 @@ This project showcases real-world cloud engineering patterns:
 
 
 ## 👤 Author
-
-Eyong
+#### *Eyong*
 
 Built as part of a cloud engineering learning journey focused on real-world system design and AWS best practices.

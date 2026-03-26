@@ -65,16 +65,12 @@ Validate → Process → Store → Move → Notify
 ↓
 SNS
 
----
-
 ### 🔹 V5 — CloudFormation (Infrastructure as Code)
 
 - **V5a** — Single-region deployment  
 - **V5b** — Region-aware deployment (avoids naming conflicts)
 
 Same architecture as V4, but fully automated using CloudFormation templates.
-
----
 
 ## Prerequisites
 

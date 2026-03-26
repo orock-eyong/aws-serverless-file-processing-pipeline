@@ -29,14 +29,14 @@ Choose how you want to explore the project:
 ### 🔹 Learn Step-by-Step (Recommended)
 Start from the basics and build up your understanding:
 
-➡️ Begin with **V1 - Basic Pipeline** and progress through each version
+➡️ Begin with **[V1](./v1-basic-pipeline/) - Basic Pipeline** and progress through each version
 
 ---
 
 ### ⚡ Deploy the Full Solution (Fastest)
 Deploy the complete architecture in one go:
 
-➡️ Use **V5b - CloudFormation Regional Template**
+➡️ Use **[V5b CloudFormation](./v5b-cloudformation-regional/) - CloudFormation Regional Template**
 
 ---
 

@@ -53,14 +53,6 @@ Each version folder contains:
 - `frontend/` — Upload UI (V3+)  
 - `cloudformation/` — Templates (V5)  
 
-## Quick Start
-
-| I want to... | Go to... |
-|---|---|
-| Learn step by step | Start with [V1](./v1-basic-pipeline/) |
-| Deploy quickly | Use [V5b CloudFormation](./v5b-cloudformation-regional/) |
-| See a specific version | Click the folder above |
-
 ## Architecture Evolution
 
 ### 🔹 [V1 - Basic Pipeline](./v1-basic-pipeline/)

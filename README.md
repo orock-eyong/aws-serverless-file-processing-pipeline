@@ -20,7 +20,7 @@ regional CloudFormation infrastructure.
 | [V3 - API Gateway & Upload Portal](./v3-api-gateway-portal/) | Web upload interface | API Gateway, IAM Least Privilege |
 | [V4 - Step Functions](./v4-step-functions/) | Orchestrated workflow | Step Functions, SQS Trigger Lambda |
 | [V5a - CloudFormation Basic](./v5a-cloudformation-basic/) | Infrastructure as Code | CloudFormation |
-| [V5b - CloudFormation Regional](./v5b-cloudformation-regional/) | Region-aware deployment | CloudFormation with region naming |
+| [V5b](./v5b-cloudformation-regional/) | Region-aware deployment | CloudFormation with region naming |
 
 ## Quick Start
 

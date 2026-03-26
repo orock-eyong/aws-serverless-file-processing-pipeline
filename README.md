@@ -22,6 +22,43 @@ regional CloudFormation infrastructure.
 | [V5a - CloudFormation Basic](./v5a-cloudformation-basic/) | Infrastructure as Code | CloudFormation |
 | [V5b - CloudFormation Regional](./v5b-cloudformation-regional/) | Region-aware deployment | CloudFormation with region naming |
 
+## 🚀 Quick Start
+
+Choose how you want to explore the project:
+
+### 🔹 Learn Step-by-Step (Recommended)
+Start from the basics and build up your understanding:
+
+➡️ Begin with **V1 - Basic Pipeline** and progress through each version
+
+---
+
+### ⚡ Deploy the Full Solution (Fastest)
+Deploy the complete architecture in one go:
+
+➡️ Use **V5b - CloudFormation Regional Template**
+
+---
+
+### 🔍 Explore a Specific Version
+Jump directly to any stage of the pipeline:
+
+- **V1** — Basic event-driven pipeline  
+- **V2** — SQS, DLQ, and fault tolerance  
+- **V3** — API Gateway + upload portal  
+- **V4** — Step Functions orchestration  
+- **V5** — Infrastructure as Code  
+
+---
+
+Each version folder contains:
+
+- `README.md` — Step-by-step instructions  
+- `lambda/` — Function code  
+- `policies/` — IAM configurations  
+- `frontend/` — Upload UI (V3+)  
+- `cloudformation/` — Templates (V5)  
+
 ## Quick Start
 
 | I want to... | Go to... |

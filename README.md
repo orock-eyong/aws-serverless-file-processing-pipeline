@@ -39,11 +39,11 @@ Deploy the complete architecture in one go:
 ### 🔍 Explore a Specific Version
 Jump directly to any stage of the pipeline:
 
-- **V1** — Basic event-driven pipeline  
-- **V2** — SQS, DLQ, and fault tolerance  
-- **V3** — API Gateway + upload portal  
-- **V4** — Step Functions orchestration  
-- **V5** — Infrastructure as Code  
+- **[V1](./v1-basic-pipeline/)** — Basic event-driven pipeline  
+- **[V2](./v2-enhanced-pipeline/)** — SQS, DLQ, and fault tolerance  
+- **[V3](./v3-api-gateway-portal/)** — API Gateway + upload portal  
+- **[V4](./v4-step-functions/)** — Step Functions orchestration  
+- **[V5](./v5a-cloudformation-basic/)** — Infrastructure as Code  
 
 Each version folder contains:
 

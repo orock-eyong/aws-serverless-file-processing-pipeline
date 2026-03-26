@@ -56,7 +56,7 @@ S3 Presigned URL
 ↓
 User → S3 Upload → SQS → Lambda → DynamoDB + SNS
 
-### 🔹 V4 — Step Functions (Workflow Orchestration)
+### 🔹 [V4 - Step Functions](./v4-step-functions/) (Workflow Orchestration)
 
 Introduces structured workflow orchestration:
 
@@ -72,8 +72,8 @@ SNS
 
 ### 🔹 V5 — CloudFormation (Infrastructure as Code)
 
-- **V5a** — Single-region deployment  
-- **V5b** — Region-aware deployment (avoids naming conflicts)
+- **[V5a - CloudFormation Basic](./v5a-cloudformation-basic/)** — Single-region deployment  
+- **[V5b - CloudFormation Regional](./v5b-cloudformation-regional/)** — Region-aware deployment (avoids naming conflicts)
 
 Same architecture as V4, but fully automated using CloudFormation templates.
 

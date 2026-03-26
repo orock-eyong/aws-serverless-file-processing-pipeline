@@ -31,14 +31,10 @@ Start from the basics and build up your understanding:
 
 ➡️ Begin with **[V1](./v1-basic-pipeline/) - Basic Pipeline** and progress through each version
 
----
-
 ### ⚡ Deploy the Full Solution (Fastest)
 Deploy the complete architecture in one go:
 
-➡️ Use **[V5b CloudFormation](./v5b-cloudformation-regional/) - CloudFormation Regional Template**
-
----
+➡️ Use **[V5b](./v5b-cloudformation-regional/) - CloudFormation Regional Template**
 
 ### 🔍 Explore a Specific Version
 Jump directly to any stage of the pipeline:
@@ -48,8 +44,6 @@ Jump directly to any stage of the pipeline:
 - **V3** — API Gateway + upload portal  
 - **V4** — Step Functions orchestration  
 - **V5** — Infrastructure as Code  
-
----
 
 Each version folder contains:
 

@@ -118,7 +118,6 @@ Each version folder contains:
 Start with V1 and work your way through each version.
 Each version builds on the previous one.
 
----
 
 ## 🎯 Key Concepts Demonstrated
 
@@ -133,7 +132,6 @@ This project showcases real-world cloud engineering patterns:
 - Multi-region deployment design  
 - Monitoring and alerting with CloudWatch  
 
----
 
 ## 💡 What I Learned
 
@@ -143,7 +141,6 @@ This project showcases real-world cloud engineering patterns:
 - Moving from simple scripts to fully orchestrated workflows  
 - Thinking in terms of systems, not just individual components  
 
----
 
 ## 🧠 Architecture Highlights
 
@@ -151,9 +148,8 @@ This project showcases real-world cloud engineering patterns:
 - Loosely coupled services using SQS  
 - Centralized orchestration with Step Functions  
 - Clear separation between ingestion, processing, and notification layers  
-- Designed for scalability, reliability, and maintainability  
+- Designed for scalability, reliability, and maintainability
 
----
 
 ## 📌 Future Improvements
 
@@ -163,7 +159,6 @@ This project showcases real-world cloud engineering patterns:
 - Introduce Terraform as an alternative IaC approach  
 - Add dashboarding (CloudWatch or QuickSight)  
 
----
 
 ## 👤 Author
 

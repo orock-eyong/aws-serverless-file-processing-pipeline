@@ -30,7 +30,7 @@ Simple event-driven processing:
 
 User → S3 → Lambda → DynamoDB + SNS
 
----
+--
 
 ### 🔹 V2 — Enhanced Pipeline (Decoupled + Fault Tolerant)
 Introduces message queuing and failure handling:

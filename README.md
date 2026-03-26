@@ -72,7 +72,7 @@ SNS
 
 ### 🔹 V5 — CloudFormation (Infrastructure as Code)
 
-- **[V5a - CloudFormation Basic](./v5a-cloudformation-basic/)** — Single-region deployment  
+- **[V5a](./v5a-cloudformation-basic/)** — Single-region deployment  
 - **[V5b](./v5b-cloudformation-regional/)** — Region-aware deployment (avoids naming conflicts)
 
 Same architecture as V4, but fully automated using CloudFormation templates.

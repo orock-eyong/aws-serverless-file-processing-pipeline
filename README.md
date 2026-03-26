@@ -32,7 +32,7 @@ regional CloudFormation infrastructure.
 
 ## Architecture Evolution
 
-### 🔹 V1 - Basic Pipeline](./v1-basic-pipeline/)
+### 🔹 [V1 - Basic Pipeline](./v1-basic-pipeline/)
 
 Simple event-driven processing:
 

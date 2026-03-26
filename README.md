@@ -26,22 +26,21 @@ regional CloudFormation infrastructure.
 ## Architecture Evolution
 
 ### 🔹 V1 — Basic Pipeline
+
 Simple event-driven processing:
 
 User → S3 → Lambda → DynamoDB + SNS
 
---
-
 ### 🔹 V2 — Enhanced Pipeline (Decoupled + Fault Tolerant)
+
 Introduces message queuing and failure handling:
 
 User → S3 → SQS → Lambda → DynamoDB + SNS
 ↓
 DLQ → CloudWatch Alarm → SNS (Owner Alert)
 
----
-
 ### 🔹 V3 — API Gateway & Upload Portal
+
 Adds secure frontend upload via presigned URLs:
 
 User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)
@@ -50,9 +49,8 @@ S3 Presigned URL
 ↓
 User → S3 Upload → SQS → Lambda → DynamoDB + SNS
 
----
-
 ### 🔹 V4 — Step Functions (Workflow Orchestration)
+
 Introduces structured workflow orchestration:
 
 User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)

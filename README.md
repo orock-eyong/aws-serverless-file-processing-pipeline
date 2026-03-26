@@ -25,47 +25,53 @@ regional CloudFormation infrastructure.
 
 ## Architecture Evolution
 
-### V1 — Basic Pipeline
+### 🔹 V1 — Basic Pipeline
+Simple event-driven processing:
 
 User → S3 → Lambda → DynamoDB + SNS
 
-### V2 — Enhanced Pipeline
+---
+
+### 🔹 V2 — Enhanced Pipeline (Decoupled + Fault Tolerant)
+Introduces message queuing and failure handling:
 
 User → S3 → SQS → Lambda → DynamoDB + SNS
 ↓
-DLQ → CloudWatch Alarm → SNS Owner Alert
+DLQ → CloudWatch Alarm → SNS (Owner Alert)
 
+---
 
-### V3 — API Gateway & Upload Portal
-
-User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)
-↓
-S3 Presigned URL
-↓
-User → S3 Upload → SQS → Lambda (WordCount) → DynamoDB + SNS
-
-### V4 — Step Functions
+### 🔹 V3 — API Gateway & Upload Portal
+Adds secure frontend upload via presigned URLs:
 
 User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)
 ↓
 S3 Presigned URL
 ↓
-User → S3 Upload → SQS → Lambda (SQSTrigger) → Step Functions
-↓
-ValidateFile
-↓
-ProcessWordCount
-↓
-StoreMetadata
-↓
-MoveToProcessedBucket
-↓
-NotifyUser → SNS
+User → S3 Upload → SQS → Lambda → DynamoDB + SNS
 
-### V5a & V5b — CloudFormation
+---
 
-Same as V4 but entire infrastructure
-deployed automatically via CloudFormation template
+### 🔹 V4 — Step Functions (Workflow Orchestration)
+Introduces structured workflow orchestration:
+
+User → GitHub Pages → API Gateway → Lambda (GeneratePresignedUrl)
+↓
+User → S3 Upload → SQS → Lambda (Trigger)
+↓
+Step Functions
+↓
+Validate → Process → Store → Move → Notify
+↓
+SNS
+---
+
+### 🔹 V5 — CloudFormation (Infrastructure as Code)
+
+- **V5a** — Single-region deployment  
+- **V5b** — Region-aware deployment (avoids naming conflicts)
+
+Same architecture as V4, but fully automated using CloudFormation templates.
 
 ## Prerequisites
 

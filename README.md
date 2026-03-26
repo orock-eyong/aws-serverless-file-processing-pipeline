@@ -46,7 +46,7 @@ User → S3 → SQS → Lambda → DynamoDB + SNS
 ↓
 DLQ → CloudWatch Alarm → SNS (Owner Alert)
 
-### 🔹 V3 — API Gateway & Upload Portal
+### 🔹 [V3 - API Gateway & Upload Portal](./v3-api-gateway-portal/)
 
 Adds secure frontend upload via presigned URLs:
 

@@ -45,8 +45,11 @@ Resources:
               - '*'
             AllowedMethods:
               - PUT
+              - GET
             AllowedOrigins:
               - '*'
+            ExposedHeaders:
+              - ETag
             MaxAge: 3000
       NotificationConfiguration:
         QueueConfigurations:
@@ -287,7 +290,7 @@ Resources:
           BUCKET_NAME: !Ref UploadBucketName
           CORS_ALLOW_ORIGIN: '*'
           ALLOWED_EXTENSIONS: .txt,.csv,.doc,.pdf
-          AWS_REGION_NAME: !Ref AWS::Region        # <-- ADDED: passes the stack region dynamically
+          AWS_REGION_NAME: !Ref AWS::Region
       Code:
         ZipFile: |
           import json
@@ -298,9 +301,13 @@ Resources:
           BUCKET_NAME = os.environ.get('BUCKET_NAME')
           ALLOWED_EXTENSIONS = os.environ.get('ALLOWED_EXTENSIONS', '.txt,.csv,.doc,.pdf').split(',')
           ALLOWED_ORIGINS = os.environ.get('CORS_ALLOW_ORIGIN', '*').split(',')
-          REGION = os.environ.get('AWS_REGION_NAME', 'eu-north-1')  # <-- ADDED: read region from env
+          REGION = os.environ.get('AWS_REGION_NAME', 'ap-northeast-1')
 
-          s3 = boto3.client('s3', region_name=REGION)               # <-- FIXED: boto3 client now uses region
+          s3 = boto3.client(
+              's3',
+              region_name=REGION,
+              endpoint_url=f'https://s3.{REGION}.amazonaws.com'
+          )
 
           def get_cors_headers(event):
               origin = event.get('headers', {}).get('origin') or event.get('headers', {}).get('Origin', '')
@@ -665,7 +672,7 @@ Resources:
           from datetime import datetime
           from urllib.parse import unquote_plus
 
-          REGION           = os.environ.get('AWS_REGION', 'eu-north-1')
+          REGION           = os.environ.get('AWS_REGION', 'ap-northeast-1')
           SNS_TOPIC_ARN    = os.environ.get('SNS_TOPIC_ARN')
           DDB_TABLE_NAME   = os.environ.get('DDB_TABLE_NAME')
           PROCESSED_BUCKET = os.environ.get('PROCESSED_BUCKET')

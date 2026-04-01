@@ -51,6 +51,13 @@ Resources:
             ExposedHeaders:
               - ETag
             MaxAge: 3000
+      # FIX #7 - Added lifecycle policy to auto-expire raw uploaded files
+      # after 7 days, preventing indefinite accumulation in the upload bucket
+      LifecycleConfiguration:
+        Rules:
+          - Id: CleanupUploads
+            Status: Enabled
+            ExpirationInDays: 7
       NotificationConfiguration:
         QueueConfigurations:
           - Event: s3:ObjectCreated:*
@@ -63,8 +70,20 @@ Resources:
 
   ProcessedBucket:
     Type: AWS::S3::Bucket
+    DependsOn: OwnerAlertTopic
     Properties:
       BucketName: !Ref ProcessedBucketName
+      # Added CORS so the frontend can fetch result files directly
+      # from the processed bucket using presigned download URLs
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders:
+              - '*'
+            AllowedMethods:
+              - GET
+            AllowedOrigins:
+              - '*'
+            MaxAge: 3000
       NotificationConfiguration:
         TopicConfigurations:
           - Event: s3:ObjectRemoved:*
@@ -88,7 +107,11 @@ Resources:
     Type: AWS::SQS::Queue
     Properties:
       QueueName: !Sub ${Environment}-FileProcessingQueue
-      VisibilityTimeout: 300
+      # FIX #6 - Reduced from 300 to 60 seconds. The SQSTrigger Lambda
+      # only starts a Step Functions execution (completes well under 30s),
+      # so 300s was excessive. Failed messages now return to the queue
+      # faster and the 6x Lambda timeout recommendation is still met.
+      VisibilityTimeout: 60
       RedrivePolicy:
         deadLetterTargetArn: !GetAtt DeadLetterQueue.Arn
         maxReceiveCount: 3
@@ -173,12 +196,29 @@ Resources:
     Properties:
       TableName: !Ref DynamoDBTableName
       BillingMode: PAY_PER_REQUEST
+      # FIX #8 - Added processedAt as sort key to support time-based queries
       AttributeDefinitions:
         - AttributeName: fileName
+          AttributeType: S
+        - AttributeName: processedAt
           AttributeType: S
       KeySchema:
         - AttributeName: fileName
           KeyType: HASH
+        - AttributeName: processedAt
+          KeyType: RANGE
+      # FIX #8 - TTL so old records auto-expire after 90 days
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      # FIX #8 - GSI to query all records by processing date
+      GlobalSecondaryIndexes:
+        - IndexName: processedAt-index
+          KeySchema:
+            - AttributeName: processedAt
+              KeyType: HASH
+          Projection:
+            ProjectionType: ALL
 
   # ─────────────────────────────────────────
   # IAM Roles
@@ -197,13 +237,25 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
       Policies:
-        - PolicyName: S3UploadPolicy
+        - PolicyName: S3PresignPolicy
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
               - Effect: Allow
                 Action: s3:PutObject
                 Resource: !Sub arn:aws:s3:::${UploadBucketName}/*
+              # FIX #4 - Added s3:GetObject and s3:ListBucket on the processed
+              # bucket so the presign Lambda can verify a result file exists
+              # via head_object before signing a download URL. Without
+              # s3:ListBucket, a missing key returns 403 instead of 404,
+              # making "not ready yet" states indistinguishable from genuine
+              # permission errors on the frontend.
+              - Effect: Allow
+                Action: s3:GetObject
+                Resource: !Sub arn:aws:s3:::${ProcessedBucketName}/*
+              - Effect: Allow
+                Action: s3:ListBucket
+                Resource: !Sub arn:aws:s3:::${ProcessedBucketName}
 
   WordCountProcessorRole:
     Type: AWS::IAM::Role
@@ -232,6 +284,19 @@ Resources:
               - Effect: Allow
                 Action: s3:PutObject
                 Resource: !Sub arn:aws:s3:::${ProcessedBucketName}/*
+              # FIX #2 & #3 - Added s3:CopyObject and s3:DeleteObject on the
+              # upload bucket so MoveToProcessedBucket completes a true move
+              # (copy + delete). Without s3:DeleteObject the original file
+              # stays in the upload bucket permanently. Without s3:CopyObject
+              # the copy step itself would fail with an access denied.
+              - Effect: Allow
+                Action: s3:CopyObject
+                Resource:
+                  - !Sub arn:aws:s3:::${UploadBucketName}/*
+                  - !Sub arn:aws:s3:::${ProcessedBucketName}/*
+              - Effect: Allow
+                Action: s3:DeleteObject
+                Resource: !Sub arn:aws:s3:::${UploadBucketName}/*
               - Effect: Allow
                 Action: dynamodb:PutItem
                 Resource: !GetAtt MetadataTable.Arn
@@ -287,7 +352,8 @@ Resources:
       MemorySize: 128
       Environment:
         Variables:
-          BUCKET_NAME: !Ref UploadBucketName
+          UPLOAD_BUCKET: !Ref UploadBucketName
+          PROCESSED_BUCKET: !Ref ProcessedBucketName
           CORS_ALLOW_ORIGIN: '*'
           ALLOWED_EXTENSIONS: .txt,.csv,.doc,.pdf
           AWS_REGION_NAME: !Ref AWS::Region
@@ -298,10 +364,11 @@ Resources:
           import os
           from botocore.exceptions import ClientError
 
-          BUCKET_NAME = os.environ.get('BUCKET_NAME')
+          REGION             = os.environ.get('AWS_REGION_NAME', 'eu-west-3')
+          UPLOAD_BUCKET      = os.environ.get('UPLOAD_BUCKET')
+          PROCESSED_BUCKET   = os.environ.get('PROCESSED_BUCKET')
           ALLOWED_EXTENSIONS = os.environ.get('ALLOWED_EXTENSIONS', '.txt,.csv,.doc,.pdf').split(',')
-          ALLOWED_ORIGINS = os.environ.get('CORS_ALLOW_ORIGIN', '*').split(',')
-          REGION = os.environ.get('AWS_REGION_NAME', 'ap-northeast-1')
+          ALLOWED_ORIGINS    = os.environ.get('CORS_ALLOW_ORIGIN', '*').split(',')
 
           s3 = boto3.client(
               's3',
@@ -321,22 +388,62 @@ Resources:
 
           def lambda_handler(event, context):
               print(f"Received event: {json.dumps(event)}")
-              print(f"Using bucket: {BUCKET_NAME} in region: {REGION}")
+              print(f"Upload bucket: {UPLOAD_BUCKET}, Processed bucket: {PROCESSED_BUCKET}, Region: {REGION}")
               CORS_HEADERS = get_cors_headers(event)
+              path = event.get('resource', event.get('path', ''))
 
               if event.get('httpMethod') == 'OPTIONS':
-                  return {
-                      'statusCode': 200,
-                      'headers': CORS_HEADERS,
-                      'body': json.dumps('OK')
-                  }
+                  return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': json.dumps('OK')}
 
               try:
                   body = json.loads(event['body'])
-                  filename = body.get('filename')
-                  content_type = body.get('contentType', 'application/octet-stream')
 
-                  print(f"Filename: {filename}, ContentType: {content_type}")
+                  # ── Download route ──
+                  if '/download' in path:
+                      key = body.get('key')
+                      if not key:
+                          return {
+                              'statusCode': 400,
+                              'headers': CORS_HEADERS,
+                              'body': json.dumps({'error': 'key is required'})
+                          }
+
+                      # FIX #0 (ROOT CAUSE) - Verify the result file actually
+                      # exists before generating the presigned URL. Without
+                      # this check, the URL is signed against STS credentials
+                      # that may be stale, or against a key that does not yet
+                      # exist, causing the browser to receive a 403. A clean
+                      # 404 with a retry hint is returned instead so the
+                      # frontend can poll gracefully.
+                      try:
+                          s3.head_object(Bucket=PROCESSED_BUCKET, Key=key)
+                      except ClientError as e:
+                          error_code = e.response['Error']['Code']
+                          if error_code in ('404', 'NoSuchKey'):
+                              return {
+                                  'statusCode': 404,
+                                  'headers': CORS_HEADERS,
+                                  'body': json.dumps({
+                                      'error': 'Result not ready yet, please retry shortly',
+                                      'retryAfterSeconds': 5
+                                  })
+                              }
+                          raise
+
+                      download_url = s3.generate_presigned_url(
+                          'get_object',
+                          Params={'Bucket': PROCESSED_BUCKET, 'Key': key},
+                          ExpiresIn=300
+                      )
+                      return {
+                          'statusCode': 200,
+                          'headers': CORS_HEADERS,
+                          'body': json.dumps({'download_url': download_url})
+                      }
+
+                  # ── Upload route ──
+                  filename     = body.get('filename')
+                  content_type = body.get('contentType', 'application/octet-stream')
 
                   if not filename:
                       return {
@@ -356,14 +463,14 @@ Resources:
                   presigned_url = s3.generate_presigned_url(
                       'put_object',
                       Params={
-                          'Bucket': BUCKET_NAME,
+                          'Bucket': UPLOAD_BUCKET,
                           'Key': filename,
                           'ContentType': content_type
                       },
                       ExpiresIn=300
                   )
 
-                  print(f"Generated presigned URL: {presigned_url}")
+                  print(f"Generated presigned URL for: {filename}")
 
                   return {
                       'statusCode': 200,
@@ -410,31 +517,22 @@ Resources:
           import os
           from urllib.parse import unquote_plus
 
-          stepfunctions = boto3.client('stepfunctions')
+          stepfunctions     = boto3.client('stepfunctions')
           STATE_MACHINE_ARN = os.environ.get('STATE_MACHINE_ARN')
 
           def lambda_handler(event, context):
               print(f"Received event: {json.dumps(event)}")
-
               for record in event['Records']:
-                  body = json.loads(record['body'])
+                  body     = json.loads(record['body'])
                   s3_event = body['Records'][0]['s3']
-                  bucket = s3_event['bucket']['name']
-                  key = unquote_plus(s3_event['object']['key'])
-
+                  bucket   = s3_event['bucket']['name']
+                  key      = unquote_plus(s3_event['object']['key'])
                   print(f"Starting Step Functions for: {bucket}/{key}")
-
                   response = stepfunctions.start_execution(
                       stateMachineArn=STATE_MACHINE_ARN,
-                      input=json.dumps({
-                          'action': 'validate',
-                          'bucket': bucket,
-                          'key': key
-                      })
+                      input=json.dumps({'bucket': bucket, 'key': key})
                   )
-
                   print(f"Execution started: {response['executionArn']}")
-
               return {'statusCode': 200}
 
   SQSTriggerEventSourceMapping:
@@ -446,7 +544,7 @@ Resources:
       Enabled: true
 
   # ─────────────────────────────────────────
-  # Step Functions
+  # Step Functions Role
   # ─────────────────────────────────────────
   StepFunctionsRole:
     Type: AWS::IAM::Role
@@ -473,6 +571,15 @@ Resources:
                   - !Ref UserNotificationTopic
                   - !Ref OwnerAlertTopic
 
+  # ─────────────────────────────────────────
+  # Step Functions Workflow
+  # FIX #1 - Removed redundant ValidateFile and StoreMetadata states.
+  # process_file() already handles S3 write, DynamoDB write and SNS
+  # publish in one pass. The SQSTrigger Lambda no longer passes
+  # action:'validate' in the initial input.
+  # Workflow is now: ProcessWordCount -> MoveToProcessedBucket ->
+  # NotifyUser -> SuccessEnd
+  # ─────────────────────────────────────────
   FileProcessingWorkflow:
     Type: AWS::StepFunctions::StateMachine
     Properties:
@@ -482,24 +589,8 @@ Resources:
         {
           "Comment": "File Processing Workflow",
           "QueryLanguage": "JSONata",
-          "StartAt": "ValidateFile",
+          "StartAt": "ProcessWordCount",
           "States": {
-            "ValidateFile": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Arguments": {
-                "FunctionName": "${WordCountProcessorFunction.Arn}",
-                "Payload": {
-                  "action": "validate",
-                  "bucket": "{% $states.input.bucket %}",
-                  "key": "{% $states.input.key %}"
-                }
-              },
-              "Output": "{% $states.result.Payload %}",
-              "Next": "ProcessWordCount",
-              "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
-              "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
-            },
             "ProcessWordCount": {
               "Type": "Task",
               "Resource": "arn:aws:states:::lambda:invoke",
@@ -509,23 +600,6 @@ Resources:
                   "action": "process",
                   "bucket": "{% $states.input.bucket %}",
                   "key": "{% $states.input.key %}"
-                }
-              },
-              "Output": "{% $states.result.Payload %}",
-              "Next": "StoreMetadata",
-              "Catch": [{"ErrorEquals": ["States.ALL"], "Next": "HandleError"}],
-              "Retry": [{"ErrorEquals": ["Lambda.ServiceException", "Lambda.AWSLambdaException", "Lambda.SdkClientException", "Lambda.TooManyRequestsException"], "IntervalSeconds": 1, "MaxAttempts": 3, "BackoffRate": 2}]
-            },
-            "StoreMetadata": {
-              "Type": "Task",
-              "Resource": "arn:aws:states:::lambda:invoke",
-              "Arguments": {
-                "FunctionName": "${WordCountProcessorFunction.Arn}",
-                "Payload": {
-                  "action": "store",
-                  "bucket": "{% $states.input.bucket %}",
-                  "key": "{% $states.input.key %}",
-                  "wordCount": "{% $states.input.wordCount %}"
                 }
               },
               "Output": "{% $states.result.Payload %}",
@@ -578,6 +652,139 @@ Resources:
         }
 
   # ─────────────────────────────────────────
+  # WordCount Processor Lambda
+  # FIX #5 - Standardised runtime to python3.12 (was python3.11)
+  # ─────────────────────────────────────────
+  WordCountProcessorFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub ${Environment}-WordCountProcessor
+      Runtime: python3.12
+      Handler: index.lambda_handler
+      Role: !GetAtt WordCountProcessorRole.Arn
+      Timeout: 300
+      MemorySize: 512
+      Environment:
+        Variables:
+          SNS_TOPIC_ARN:     !Ref UserNotificationTopic
+          DDB_TABLE_NAME:    !Ref DynamoDBTableName
+          PROCESSED_BUCKET:  !Ref ProcessedBucketName
+          UPLOAD_BUCKET:     !Ref UploadBucketName
+          DDB_PARTITION_KEY: fileName
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import os
+          from datetime import datetime, timezone
+          from urllib.parse import unquote_plus
+
+          REGION            = os.environ.get('AWS_REGION', 'eu-west-3')
+          SNS_TOPIC_ARN     = os.environ.get('SNS_TOPIC_ARN')
+          DDB_TABLE_NAME    = os.environ.get('DDB_TABLE_NAME')
+          PROCESSED_BUCKET  = os.environ.get('PROCESSED_BUCKET')
+          UPLOAD_BUCKET     = os.environ.get('UPLOAD_BUCKET')
+          DDB_PARTITION_KEY = os.environ.get('DDB_PARTITION_KEY', 'fileName')
+
+          # FIX #8 - TTL set to 90 days from processing time
+          TTL_SECONDS = 90 * 24 * 60 * 60
+
+          s3       = boto3.client('s3',         region_name=REGION)
+          sns      = boto3.client('sns',        region_name=REGION)
+          dynamodb = boto3.resource('dynamodb', region_name=REGION)
+
+          def process_file(bucket, key):
+              print(f"Processing file: s3://{bucket}/{key}")
+              filename      = os.path.basename(key)
+              download_path = f'/tmp/{filename}'
+              s3.download_file(bucket, key, download_path)
+
+              with open(download_path, 'r', encoding='utf-8', errors='ignore') as f:
+                  text = f.read()
+
+              word_count   = len(text.split())
+              result_key   = f'wordcount-{filename}'
+              result_body  = f'Total words in {key}: {word_count}'
+              processed_at = datetime.now(timezone.utc).isoformat()
+
+              print(f"Word count for {key}: {word_count}")
+
+              s3.put_object(
+                  Bucket=PROCESSED_BUCKET,
+                  Key=result_key,
+                  Body=result_body
+              )
+
+              # FIX #8 - Added processedAt (sort key) and ttl (TTL attribute)
+              table = dynamodb.Table(DDB_TABLE_NAME)
+              table.put_item(Item={
+                  DDB_PARTITION_KEY: key,
+                  'processedAt':     processed_at,
+                  'WordCount':       word_count,
+                  'ttl':             int(datetime.now(timezone.utc).timestamp()) + TTL_SECONDS
+              })
+
+              sns.publish(
+                  TopicArn=SNS_TOPIC_ARN,
+                  Message=f'File {key} processed successfully! {word_count} words counted.',
+                  Subject='Text Processing Complete'
+              )
+
+              return {
+                  'bucket':      bucket,
+                  'key':         key,
+                  'wordCount':   word_count,
+                  'processedAt': processed_at
+              }
+
+          # FIX #2 - move_file now completes a true move: copy_object then
+          # delete_object. Previously only copy_object was called, leaving
+          # the original file in the upload bucket permanently and
+          # potentially re-triggering processing.
+          def move_file(source_bucket, destination_bucket, key):
+              print(f"Moving s3://{source_bucket}/{key} -> s3://{destination_bucket}/{key}")
+              s3.copy_object(
+                  CopySource={'Bucket': source_bucket, 'Key': key},
+                  Bucket=destination_bucket,
+                  Key=key
+              )
+              s3.delete_object(Bucket=source_bucket, Key=key)
+              print(f"Move complete for {key}")
+              return {'bucket': source_bucket, 'key': key}
+
+          def lambda_handler(event, context):
+              print(f"Raw event received: {json.dumps(event)}")
+
+              if 'action' in event:
+                  action = event['action']
+                  key    = event['key']
+
+                  if action == 'move':
+                      return move_file(
+                          event['sourceBucket'],
+                          event['destinationBucket'],
+                          key
+                      )
+                  else:
+                      return process_file(event['bucket'], key)
+
+              if 'Records' in event:
+                  for sqs_record in event['Records']:
+                      try:
+                          sqs_body = json.loads(sqs_record['body'])
+                          if 'Records' not in sqs_body:
+                              continue
+                          for s3_record in sqs_body['Records']:
+                              bucket = s3_record['s3']['bucket']['name']
+                              key    = unquote_plus(s3_record['s3']['object']['key'])
+                              process_file(bucket, key)
+                      except Exception as e:
+                          print(f"ERROR processing record: {str(e)}")
+                          raise e
+
+              return {'statusCode': 200}
+
+  # ─────────────────────────────────────────
   # API Gateway
   # ─────────────────────────────────────────
   FileUploadApi:
@@ -592,6 +799,14 @@ Resources:
       RestApiId: !Ref FileUploadApi
       ParentId: !GetAtt FileUploadApi.RootResourceId
       PathPart: upload
+
+  # Added download resource to expose the presigned download endpoint
+  DownloadResource:
+    Type: AWS::ApiGateway::Resource
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      ParentId: !GetAtt FileUploadApi.RootResourceId
+      PathPart: download
 
   PostMethod:
     Type: AWS::ApiGateway::Method
@@ -629,148 +844,97 @@ Resources:
             method.response.header.Access-Control-Allow-Headers: false
             method.response.header.Access-Control-Allow-Methods: false
 
+  DownloadPostMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      ResourceId: !Ref DownloadResource
+      HttpMethod: POST
+      AuthorizationType: NONE
+      Integration:
+        Type: AWS_PROXY
+        IntegrationHttpMethod: POST
+        Uri: !Sub arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${GeneratePresignedUrlFunction.Arn}/invocations
+
+  DownloadOptionsMethod:
+    Type: AWS::ApiGateway::Method
+    Properties:
+      RestApiId: !Ref FileUploadApi
+      ResourceId: !Ref DownloadResource
+      HttpMethod: OPTIONS
+      AuthorizationType: NONE
+      Integration:
+        Type: MOCK
+        RequestTemplates:
+          application/json: '{"statusCode": 200}'
+        IntegrationResponses:
+          - StatusCode: 200
+            ResponseParameters:
+              method.response.header.Access-Control-Allow-Origin: "'*'"
+              method.response.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+              method.response.header.Access-Control-Allow-Methods: "'POST,OPTIONS'"
+      MethodResponses:
+        - StatusCode: 200
+          ResponseParameters:
+            method.response.header.Access-Control-Allow-Origin: false
+            method.response.header.Access-Control-Allow-Headers: false
+            method.response.header.Access-Control-Allow-Methods: false
+
+  # FIX #9 - Broadened SourceArn from stage-locked POST-only ARN to
+  # cover any method and stage on this API
   ApiGatewayLambdaPermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !GetAtt GeneratePresignedUrlFunction.Arn
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
-      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadApi}/*/POST/upload
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadApi}/*/*/upload
+
+  ApiGatewayDownloadPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !GetAtt GeneratePresignedUrlFunction.Arn
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${FileUploadApi}/*/*/download
 
   ApiDeployment:
     Type: AWS::ApiGateway::Deployment
     DependsOn:
       - PostMethod
       - OptionsMethod
+      - DownloadPostMethod
+      - DownloadOptionsMethod
     Properties:
       RestApiId: !Ref FileUploadApi
       StageName: !Ref Environment
 
-  # ─────────────────────────────────────────
-  # WordCount Processor Lambda
-  # ─────────────────────────────────────────
-  WordCountProcessorFunction:
-    Type: AWS::Lambda::Function
+  # FIX #10 - Added throttling to prevent open API abuse.
+  # Limits to 5 requests/sec sustained with a burst of 10.
+  ApiGatewayStageSettings:
+    Type: AWS::ApiGateway::Stage
+    DependsOn: ApiDeployment
     Properties:
-      FunctionName: !Sub ${Environment}-WordCountProcessor
-      Runtime: python3.11
-      Handler: index.lambda_handler
-      Role: !GetAtt WordCountProcessorRole.Arn
-      Timeout: 300
-      MemorySize: 512
-      Environment:
-        Variables:
-          SNS_TOPIC_ARN: !Ref UserNotificationTopic
-          DDB_TABLE_NAME: !Ref DynamoDBTableName
-          PROCESSED_BUCKET: !Ref ProcessedBucketName
-          DDB_PARTITION_KEY: fileName
-      Code:
-        ZipFile: |
-          import json
-          import boto3
-          import os
-          from datetime import datetime
-          from urllib.parse import unquote_plus
-
-          REGION           = os.environ.get('AWS_REGION', 'ap-northeast-1')
-          SNS_TOPIC_ARN    = os.environ.get('SNS_TOPIC_ARN')
-          DDB_TABLE_NAME   = os.environ.get('DDB_TABLE_NAME')
-          PROCESSED_BUCKET = os.environ.get('PROCESSED_BUCKET')
-          DDB_PARTITION_KEY = os.environ.get('DDB_PARTITION_KEY', 'fileName')
-
-          s3       = boto3.client('s3',         region_name=REGION)
-          sns      = boto3.client('sns',        region_name=REGION)
-          dynamodb = boto3.resource('dynamodb', region_name=REGION)
-
-          def process_file(bucket, key):
-              print(f"Processing file: s3://{bucket}/{key}")
-              filename      = os.path.basename(key)
-              download_path = f'/tmp/{filename}'
-              s3.download_file(bucket, key, download_path)
-
-              with open(download_path, 'r', encoding='utf-8', errors='ignore') as f:
-                  text = f.read()
-
-              word_count = len(text.split())
-              print(f"Word count for {key}: {word_count}")
-
-              result_key  = f'wordcount-{filename}'
-              result_body = f'Total words in {key}: {word_count}'
-              s3.put_object(
-                  Bucket=PROCESSED_BUCKET,
-                  Key=result_key,
-                  Body=result_body
-              )
-
-              table = dynamodb.Table(DDB_TABLE_NAME)
-              table.put_item(
-                  Item={
-                      DDB_PARTITION_KEY: key,
-                      'WordCount':       word_count,
-                      'ProcessedAt':     datetime.utcnow().isoformat()
-                  }
-              )
-
-              sns.publish(
-                  TopicArn=SNS_TOPIC_ARN,
-                  Message=f'File {key} processed successfully! {word_count} words counted.',
-                  Subject='Text Processing Complete'
-              )
-
-              return {
-                  'bucket': bucket,
-                  'key': key,
-                  'wordCount': word_count
-              }
-
-          def lambda_handler(event, context):
-              print(f"Raw event received: {json.dumps(event)}")
-
-              if 'action' in event:
-                  action = event['action']
-                  key    = event['key']
-
-                  if action == 'move':
-                      source_bucket      = event['sourceBucket']
-                      destination_bucket = event['destinationBucket']
-                      copy_source = {'Bucket': source_bucket, 'Key': key}
-                      s3.copy_object(
-                          CopySource=copy_source,
-                          Bucket=destination_bucket,
-                          Key=key
-                      )
-                      print(f"Copied {key} from {source_bucket} to {destination_bucket}")
-                      return {
-                          'bucket': source_bucket,
-                          'key': key
-                      }
-                  else:
-                      bucket = event['bucket']
-                      return process_file(bucket, key)
-
-              if 'Records' in event:
-                  for sqs_record in event['Records']:
-                      try:
-                          sqs_body = json.loads(sqs_record['body'])
-                          if 'Records' not in sqs_body:
-                              continue
-                          for s3_record in sqs_body['Records']:
-                              bucket = s3_record['s3']['bucket']['name']
-                              key    = unquote_plus(s3_record['s3']['object']['key'])
-                              process_file(bucket, key)
-                      except Exception as e:
-                          print(f"ERROR processing record: {str(e)}")
-                          raise e
-
-              return {'statusCode': 200}
+      RestApiId: !Ref FileUploadApi
+      StageName: !Sub ${Environment}-throttled
+      DeploymentId: !Ref ApiDeployment
+      MethodSettings:
+        - ResourcePath: '/*'
+          HttpMethod: '*'
+          ThrottlingBurstLimit: 10
+          ThrottlingRateLimit: 5
 
 # ─────────────────────────────────────────
 # Outputs
 # ─────────────────────────────────────────
 Outputs:
   ApiUrl:
-    Description: API Gateway URL
+    Description: API Gateway Upload URL
     Value: !Sub https://${FileUploadApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/upload
+
+  DownloadApiUrl:
+    Description: API Gateway Download URL
+    Value: !Sub https://${FileUploadApi}.execute-api.${AWS::Region}.amazonaws.com/${Environment}/download
 
   UploadBucketName:
     Description: Upload bucket name

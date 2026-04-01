@@ -1,4 +1,8 @@
 # V3 - API Gateway & Upload Portal
+![AWS](https://img.shields.io/badge/AWS-Serverless-orange)
+![Python](https://img.shields.io/badge/Python-3.x-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Event--Driven-green)
+![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
 
 ## Overview
 Builds on V2 by adding a web-based file upload portal hosted on 

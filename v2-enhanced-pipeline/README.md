@@ -1,4 +1,8 @@
 # V2 - Enhanced Pipeline
+![AWS](https://img.shields.io/badge/AWS-Serverless-orange)
+![Python](https://img.shields.io/badge/Python-3.x-blue)
+![Architecture](https://img.shields.io/badge/Architecture-Event--Driven-green)
+![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
 
 ## Overview
 Builds on V1 by adding SQS for decoupled processing, a Dead Letter 

@@ -1,4 +1,10 @@
 # V5a - CloudFormation Basic
+![AWS](https://img.shields.io/badge/AWS-Serverless-orange)
+![Python](https://img.shields.io/badge/Python-3.11-blue)
+![AWS Lambda](https://img.shields.io/badge/AWS-Lambda-yellow)
+![API Gateway](https://img.shields.io/badge/AWS-API_Gateway-red)
+![S3](https://img.shields.io/badge/AWS-S3-green)
+![License](https://img.shields.io/badge/License-MIT-lightgrey)
 
 ## Overview
 Builds on V4 by automating the entire infrastructure deployment 
